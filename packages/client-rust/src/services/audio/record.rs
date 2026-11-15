@@ -77,6 +77,16 @@ impl AudioRecorder {
         let capture_config = capture_config_for_recording(&requested_config);
         let mut arecord_thread = spawn_arecord(&capture_config)?;
 
+        // P1-2: Opus 压缩（codec == "opus" 时上行流为 Opus 帧，否则裸 PCM）
+        let mut opus_encoder = if requested_config.is_opus() {
+            Some(super::codec::OpusEncoder::new(
+                requested_config.sample_rate,
+                requested_config.channels,
+            )?)
+        } else {
+            None
+        };
+
         let mut stdout = arecord_thread.stdout.take().unwrap();
         let read_thread = tokio::spawn(async move {
             let bytes_per_sample = (capture_config.bits_per_sample.max(8) / 8) as usize;
@@ -96,10 +106,30 @@ impl AudioRecorder {
                         while accumulated_data.len() >= target_size {
                             let data_to_send =
                                 accumulated_data.drain(..target_size).collect::<Vec<u8>>();
-                            let data_to_send =
-                                transform_stream_chunk(data_to_send, &requested_config, &capture_config);
-                            if !data_to_send.is_empty() {
-                                let _ = on_stream(data_to_send).await;
+                            let data_to_send = transform_stream_chunk(
+                                data_to_send,
+                                &requested_config,
+                                &capture_config,
+                            );
+                            if data_to_send.is_empty() {
+                                continue;
+                            }
+                            // 上行分块：PCM 直接发；Opus 模式下先按 20ms 帧编码
+                            let packets = match opus_encoder.as_mut() {
+                                Some(encoder) => {
+                                    let samples = super::codec::pcm_bytes_to_samples(&data_to_send);
+                                    match encoder.encode(&samples) {
+                                        Ok(packets) => packets,
+                                        Err(e) => {
+                                            eprintln!("❌ Opus 编码失败: {}", e);
+                                            break;
+                                        }
+                                    }
+                                }
+                                None => vec![data_to_send],
+                            };
+                            for packet in packets {
+                                let _ = on_stream(packet).await;
                             }
                         }
                     }

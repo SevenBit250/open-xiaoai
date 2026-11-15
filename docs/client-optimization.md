@@ -84,7 +84,14 @@
 - **作用**：`arecord` 采音上行 + `aplay` 流式播放，均裸 PCM（默认 16k/16bit/单声道）
 - **问题**：双向裸 PCM ~100KB/s，WiFi 高峰期可能卡顿；Server 端也省不了带宽
 - **修法**：可选 Opus（16k 单声道压到 4-6KB/s，A53 编码开销 <2% CPU）；`packages/runtime` 交叉编译镜像已自带 ARMv7 Opus 库。通过 `AudioConfig` 协商开关，默认关保持兼容
-- **状态**：待修
+- **状态**：✅ 已修复（2026-11-15，实测 4s 录音 122.8KB → **11.3KB，10.9 倍压缩**，帧级验证 50/50 可解码）
+
+实现要点：
+- `AudioConfig` 新增 `codec` 字段（serde 默认 None = PCM，完全向后兼容）：`"codec": "opus"` 即启用
+- 新增 `src/services/audio/codec.rs`：`audiopus 0.2`（libopus C 绑定）封装，Voip profile / 24kbps / 20ms 帧；编码器内部缓冲任意长度 PCM 按帧切片
+- 录音路径（record.rs）：PCM→i16→Opus 帧上行；播放路径（play.rs）：Opus 帧→PCM→aplay，编解码对上层完全透明
+- 注意：audiopus 0.2 用自定义 `TryFrom`，且 `decode(None,...)` 需显式 `None::<&[u8]>` 标注
+- 残余观察：20ms 小帧下二进制帧头占比偏高（线上 x1.77）——总流量已极小（5KB/s vs PCM 33.5KB/s），如需进一步优化可改 40/60ms 帧或帧打包
 
 ### 🟡 P2-1 FileMonitor 10ms 轮询 + 空转等待
 
@@ -133,7 +140,8 @@
 - **作用**：下行 `play` 流式播放（aplay stdin 管道）
 - **问题**：默认 `buffer_size=480`（30ms@16k）缓冲极小，服务端按实时节拍推流时，任何网络/事件循环抖动都会让 aplay 饿死（实测 1.5s 提示音 underrun ~250ms × 6 次，音有明显断续）
 - **修法**：start_play 后先预缓冲 N ms（如 200ms）再喂 aplay + 增大 aplay `--buffer-size`；服务端推流节拍应稍快于实时（如 0.9x 间隔）
-- **状态**：待修（做 P1-2 Opus 时一并调整播放管线）
+- **状态**：✅ 已修复（2026-11-15）：aplay ALSA 缓冲下限 `MIN_APLAY_BUFFER_FRAMES=2400`（150ms）+ 内部队列 50→300 块；实测突发推流 **underrun 0 次**（修复前 4~6 次/2s）
+- **附注**：持续欠载（服务端推流慢于实时）任何缓冲都救不了——服务端应以快于实时的速率推流；Windows 测试端注意 `asyncio.sleep` 计时粒度 ~15ms，细粒度 1.0x 节拍实际会变成 0.5x（我们测试时踩过）
 
 ---
 

@@ -39,7 +39,7 @@ CI（`.github/workflows/`）：`compile-client-rust.yml` 编译 Client；`LX06.y
 
 **通信协议**（`packages/client-rust/src/services/connect/data.rs`）：单个 WebSocket 连接（默认端口 4399）：
 - Text 帧 JSON：`Request`/`Response`（Server → Client 的 RPC，id 关联；Client 命令：`get_version`、`run_shell`、`start_play`、`stop_play`、`start_recording`、`stop_recording`）、`Event`（Client → Server 上报 `instruction` / `playing` / `kws`）。
-- Binary 帧 = Stream 音频分块（tag `record` 上行麦克风 PCM / `play` 下行播放 PCM）：**v1 二进制帧格式**（首字节 0x01，见 `message.rs` 注释；接收端兼容识别旧 JSON 帧——首字节 `{`），勿再用 serde_json 序列化 `Stream.bytes`。
+- Binary 帧 = Stream 音频分块（tag `record` 上行麦克风 PCM / `play` 下行播放 PCM）：**v1 二进制帧格式**（首字节 0x01，见 `message.rs` 注释；接收端兼容识别旧 JSON 帧——首字节 `{`），勿再用 serde_json 序列化 `Stream.bytes`。`AudioConfig.codec = "opus"` 可启用 Opus 压缩（Voip/24kbps/20ms 帧，`src/services/audio/codec.rs`，默认 None=PCM 兼容旧版）。
 
 **Client 端监控原理**（`src/services/monitor/`）：
 - `instruction`：tail 音箱自带 AIVS 日志 `/tmp/mico_aivs_lab/instruction.log`（每行一条 JSON，含 ASR 识别结果、Speak/Play 指令等）。

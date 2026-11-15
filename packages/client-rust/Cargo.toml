@@ -15,6 +15,7 @@ debug = false
 image = "ghcr.io/cross-rs/armv7-unknown-linux-gnueabihf:0.2.5"
 
 [dependencies]
+audiopus = "0.2"
 futures = "0.3.31"
 rand = "0.9.2"
 serde = { version = "1.0", features = ["derive"] }
