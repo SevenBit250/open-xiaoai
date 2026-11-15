@@ -71,7 +71,12 @@
 - **问题**：`serde_json::to_vec(&Stream{bytes: Vec<u8>})` 把字节序列化成 `[104,101,...]` JSON 数字数组：16kHz/16bit 单声道 32KB/s → 线上 ~125KB/s，两端还要付 JSON 数字解析 CPU（服务端每秒解析 12 万+ 个数字）
 - **修法**：Binary 帧自定义紧凑头：`type(1B) + tag_len(1B) + tag + payload_len(4B) + payload`。协议库两端共用（Python/Node 走同一 Rust binding），单一改动点；过渡方案 base64（1.33 倍）
 - **注意**：改协议需同步验证 examples/xiaozhi、migpt、gemini 的 binding 调用路径
-- **状态**：待修
+- **状态**：✅ 已修复（2026-11-15，实测线上开销 x2.58 → **x1.048**，带宽省 ~60%）
+
+实现（`message.rs`）：
+- 新增 v1 二进制流帧：`[0]=0x01 版本 [1]=flags(bit0=含json) [2]=tag_len [tag] [id_len] [id] ([2B LE json_len][json]) [rest]=payload`
+- **旧格式兼容**：JSON 帧首字节恒为 `{`（0x7B），与新版本字节 0x01 无歧义，接收端自动识别两种格式（已实测：旧 client 收到新帧会因 JSON 解析失败断线重连，新 client 收发新帧正常）
+- `Stream` 结构体与上层 API（binding/MessageHandler）不变，examples 重编译即兼容
 
 ### 🟠 P1-2 无音频压缩
 
@@ -121,6 +126,14 @@
 - `SpeakerManager` 低频控制指令走 shell：频率低，优化无收益
 - `aplay` 16k 单声道经 ALSA plug 重采样到 48k 双声道 dmixer：有轻微 CPU 开销，但改 48k 直出需要服务端配合重采样，收益小，暂不动
 - `rpc.rs` 10s 默认超时 / 32 并发信号量：现网无瓶颈
+
+### 🟡 P2-3 播放路径无预缓冲，网络抖动即 underrun（P1-1 测试中发现）
+
+- **组件**：`packages/client-rust/src/services/audio/play.rs` + `AudioConfig` 默认值
+- **作用**：下行 `play` 流式播放（aplay stdin 管道）
+- **问题**：默认 `buffer_size=480`（30ms@16k）缓冲极小，服务端按实时节拍推流时，任何网络/事件循环抖动都会让 aplay 饿死（实测 1.5s 提示音 underrun ~250ms × 6 次，音有明显断续）
+- **修法**：start_play 后先预缓冲 N ms（如 200ms）再喂 aplay + 增大 aplay `--buffer-size`；服务端推流节拍应稍快于实时（如 0.9x 间隔）
+- **状态**：待修（做 P1-2 Opus 时一并调整播放管线）
 
 ---
 

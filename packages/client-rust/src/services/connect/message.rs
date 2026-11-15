@@ -110,7 +110,7 @@ impl MessageManager {
         bytes: Vec<u8>,
         data: Option<Value>,
     ) -> Result<(), AppError> {
-        let stream = serde_json::to_vec(&Stream::new(tag, bytes, data)).unwrap();
+        let stream = encode_stream_frame(&Stream::new(tag, bytes, data));
         MessageManager::instance()
             .send(Message::Binary(stream.into()))
             .await
@@ -152,7 +152,7 @@ impl MessageManager {
     }
 
     async fn on_bytes(&self, bytes: Vec<u8>) -> Result<(), AppError> {
-        let data = serde_json::from_slice::<Stream>(&bytes)?;
+        let data = decode_stream_frame(&bytes)?;
         MessageHandler::<Stream>::instance().on(data).await
     }
 
@@ -200,4 +200,103 @@ impl MessageManager {
         TaskManager::instance().add("MessageManager", task).await;
         Ok(())
     }
+}
+
+/// Stream 二进制流帧格式（v1），替代旧版「JSON 数字数组」编码（实测膨胀 ~3.9 倍）：
+///
+/// ```text
+/// [0]     magic/version = 0x01（旧 JSON 帧首字节恒为 '{' 0x7B，可无歧义识别回退）
+/// [1]     flags：bit0 = 携带 JSON data
+/// [2]     tag_len
+/// [3..]   tag (UTF-8)
+/// [.]     id_len
+/// [..]    id (UTF-8)
+/// [2B LE] json_len（仅当 flags bit0 置位）
+/// [..]    json (UTF-8)
+/// [rest]  bytes payload
+/// ```
+const STREAM_FRAME_VERSION: u8 = 0x01;
+const STREAM_FLAG_HAS_JSON: u8 = 0x01;
+
+fn encode_stream_frame(stream: &Stream) -> Vec<u8> {
+    let tag = stream.tag.as_bytes();
+    let id = stream.id.as_bytes();
+    let json = stream
+        .data
+        .as_ref()
+        .and_then(|d| serde_json::to_vec(d).ok());
+
+    let mut buf = Vec::with_capacity(
+        3 + tag.len() + 1 + id.len() + json.as_ref().map_or(0, |j| 2 + j.len()) + stream.bytes.len(),
+    );
+    buf.push(STREAM_FRAME_VERSION);
+    buf.push(if json.is_some() { STREAM_FLAG_HAS_JSON } else { 0 });
+    buf.push(tag.len() as u8);
+    buf.extend_from_slice(tag);
+    buf.push(id.len() as u8);
+    buf.extend_from_slice(id);
+    if let Some(json) = &json {
+        buf.extend_from_slice(&(json.len() as u16).to_le_bytes());
+        buf.extend_from_slice(json);
+    }
+    buf.extend_from_slice(&stream.bytes);
+    buf
+}
+
+fn decode_stream_frame(buf: &[u8]) -> Result<Stream, AppError> {
+    // 旧格式兼容：JSON 帧首字节恒为 '{'
+    if buf.first() == Some(&b'{') {
+        return Ok(serde_json::from_slice::<Stream>(buf)?);
+    }
+    let err = |msg: &str| -> AppError { format!("无效的 Stream 帧: {msg}").into() };
+
+    let (&version, &flags, &tag_len) = match buf {
+        [v, f, t, ..] => (v, f, t),
+        _ => return Err(err("帧头不足 3 字节")),
+    };
+    if version != STREAM_FRAME_VERSION {
+        return Err(err(&format!("不支持的版本 {version}")));
+    }
+
+    let mut pos = 3usize;
+    let tag_end = pos + tag_len as usize;
+    let tag = buf
+        .get(pos..tag_end)
+        .and_then(|b| std::str::from_utf8(b).ok())
+        .ok_or_else(|| err("tag 解码失败"))?
+        .to_string();
+    pos = tag_end;
+
+    let id_len = *buf.get(pos).ok_or_else(|| err("id_len 缺失"))?;
+    pos += 1;
+    let id_end = pos + id_len as usize;
+    let id = buf
+        .get(pos..id_end)
+        .and_then(|b| std::str::from_utf8(b).ok())
+        .ok_or_else(|| err("id 解码失败"))?
+        .to_string();
+    pos = id_end;
+
+    let data = if flags & STREAM_FLAG_HAS_JSON != 0 {
+        let json_len = u16::from_le_bytes(
+            buf.get(pos..pos + 2)
+                .and_then(|b| b.try_into().ok())
+                .ok_or_else(|| err("json_len 缺失"))?,
+        ) as usize;
+        pos += 2;
+        let json_end = pos + json_len;
+        let json = buf.get(pos..json_end).ok_or_else(|| err("json 越界"))?;
+        pos = json_end;
+        Some(serde_json::from_slice(json)?)
+    } else {
+        None
+    };
+
+    let bytes = buf.get(pos..).unwrap_or(&[]).to_vec();
+    Ok(Stream {
+        id,
+        tag,
+        bytes,
+        data,
+    })
 }

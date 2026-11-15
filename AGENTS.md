@@ -37,10 +37,9 @@ CI（`.github/workflows/`）：`compile-client-rust.yml` 编译 Client；`LX06.y
 
 **Client-Server 分工**：音箱端算力/内存极有限，识别和业务逻辑全部放 Server 端；Client（Rust）只转发音频流、上报事件、响应 RPC。Rust 协议库通过 binding 复用到 Server 端：Python 用 pyo3（cdylib `open_xiaoai_server`），Node 用 napi（产物 `open-xiaoai.node`），examples 里 Cargo.toml 以 path 依赖 `../../packages/client-rust`。
 
-**通信协议**（`packages/client-rust/src/services/connect/data.rs`）：单个 WebSocket 连接（默认端口 4399）上传输 4 种 JSON 消息：
-- `Request`/`Response`：Server → Client 的 RPC（id 关联）。Client 已注册命令：`get_version`、`run_shell`、`start_play`、`stop_play`、`start_recording`、`stop_recording`。
-- `Event`：Client → Server 上报，event 类型 `instruction` / `playing` / `kws`。
-- `Stream`：二进制音频分块，tag 为 `record`（上行麦克风 PCM）或 `play`（下行播放 PCM）。
+**通信协议**（`packages/client-rust/src/services/connect/data.rs`）：单个 WebSocket 连接（默认端口 4399）：
+- Text 帧 JSON：`Request`/`Response`（Server → Client 的 RPC，id 关联；Client 命令：`get_version`、`run_shell`、`start_play`、`stop_play`、`start_recording`、`stop_recording`）、`Event`（Client → Server 上报 `instruction` / `playing` / `kws`）。
+- Binary 帧 = Stream 音频分块（tag `record` 上行麦克风 PCM / `play` 下行播放 PCM）：**v1 二进制帧格式**（首字节 0x01，见 `message.rs` 注释；接收端兼容识别旧 JSON 帧——首字节 `{`），勿再用 serde_json 序列化 `Stream.bytes`。
 
 **Client 端监控原理**（`src/services/monitor/`）：
 - `instruction`：tail 音箱自带 AIVS 日志 `/tmp/mico_aivs_lab/instruction.log`（每行一条 JSON，含 ASR 识别结果、Speak/Play 指令等）。
