@@ -12,6 +12,8 @@ use ubus::unix::UnixUbusTransport;
 use ubus::{json::blobmsg_to_json, BlobMsgTable};
 
 use crate::base::AppError;
+use crate::log_error;
+use crate::log_info;
 
 /// ubus mediaplayer.player_get_play_status 返回的 info.status 语义（实测 LX06 1.94.13）：
 /// 0 = 空闲；1 = 播放中；2 = 暂停（旧文档值）；3 = 暂停后驻留态。
@@ -84,7 +86,7 @@ impl PlayingMonitor {
                     };
                     // 出错不再静默退出（修复 P0-2）：打日志后重连
                     match result {
-                        Err(e) => eprintln!(
+                        Err(e) => log_error!(
                             "playing monitor 异常，{}s 后重试: {}",
                             RECONNECT_DELAY.as_secs(),
                             e
@@ -104,7 +106,7 @@ impl PlayingMonitor {
         });
 
         if let Some(old_task) = self.task_holder.replace(monitor) {
-            println!("Aborting old playing monitor task");
+            log_info!("Aborting old playing monitor task");
             old_task.abort();
         };
         self.running = Some(running);

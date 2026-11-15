@@ -52,6 +52,7 @@ CI（`.github/workflows/`）：`compile-client-rust.yml` 编译 Client；`LX06.y
 
 ## 注意事项
 
+- **Client 配置**：`/data/open-xiaoai/config.json`（`utils/config.rs`）——`server` 地址（argv > config > 报错）、`log_file` + `log_max_bytes`（内置滚动日志：超限丢弃最旧一半，单文件恒 ≤ 上限）；日志统一用 `log_info!`/`log_error!` 宏，勿直接 println。
 - 音箱端二进制必须为 ARMv7 (armhf) + glibc 2.25 兼容，用 `packages/runtime` 的 Docker 环境编译，不要用本机工具链。
 - 系统更新后补丁失效需重新刷机；`/data` 分区在刷机后保留，业务程序放 `/data/open-xiaoai/`。
 - Client 启动参数为 server 地址（`client ws://ip:4399`），断线后每秒自动重连；`run_shell` RPC 可执行任意脚本，切勿连接不可信 server。

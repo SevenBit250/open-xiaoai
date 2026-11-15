@@ -105,6 +105,22 @@ chmod +x /data/open-xiaoai/client
 # 比如：/data/open-xiaoai/client ws://192.168.31.227:4399
 ```
 
+### 配置文件
+
+也可以把 server 地址和日志配置写进 `/data/open-xiaoai/config.json`，然后直接运行 client（不带参数）：
+
+```json
+{
+  "server": "ws://192.168.31.227:4399",
+  "log_file": "/tmp/client.log",
+  "log_max_bytes": 1048576
+}
+```
+
+- `server`：WebSocket server 地址（命令行参数优先于配置文件）
+- `log_file`：日志文件路径，不配置则输出到标准输出
+- `log_max_bytes`：日志文件大小上限（字节，默认 1MB）；**滚动写入**，超过上限后丢弃最旧的日志、保留最近的继续写，文件大小不会超过此值
+
 ## 注意事项
 
 当前 Client 端使用 Rust 编写，只负责转发和被动响应 Server 端的调用，不实现具体的业务逻辑。

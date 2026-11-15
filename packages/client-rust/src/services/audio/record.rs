@@ -9,6 +9,7 @@ use tokio::task::JoinHandle;
 use tokio::time::timeout;
 
 use crate::base::AppError;
+use crate::log_error;
 
 use super::config::{AudioConfig, AUDIO_CONFIG};
 
@@ -121,7 +122,7 @@ impl AudioRecorder {
                                     match encoder.encode(&samples) {
                                         Ok(packets) => packets,
                                         Err(e) => {
-                                            eprintln!("❌ Opus 编码失败: {}", e);
+                                            log_error!("❌ Opus 编码失败: {}", e);
                                             break;
                                         }
                                     }

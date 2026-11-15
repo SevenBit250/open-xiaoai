@@ -15,6 +15,11 @@ use open_xiaoai::services::connect::message::{MessageManager, WsStream};
 use open_xiaoai::services::connect::rpc::RPC;
 use open_xiaoai::services::monitor::instruction::InstructionMonitor;
 use open_xiaoai::services::monitor::playing::PlayingMonitor;
+use open_xiaoai::utils::config::AppConfig;
+use open_xiaoai::utils::logger;
+
+use open_xiaoai::log_error;
+use open_xiaoai::log_info;
 
 struct AppClient {
     kws_monitor: KwsMonitor,
@@ -37,20 +42,29 @@ impl AppClient {
     }
 
     pub async fn run(&mut self) {
-        let url = std::env::args().nth(1).expect("❌ 请输入服务器地址");
-        println!("✅ 已启动");
+        // 配置加载与日志初始化（argv > config.json）
+        let config = AppConfig::load();
+        logger::init(config.log_file.as_deref(), config.log_max_bytes);
+        let url = std::env::args()
+            .nth(1)
+            .or_else(|| config.server.clone())
+            .unwrap_or_else(|| {
+                log_error!("❌ 未配置服务器地址：请传入命令行参数或在 config.json 中设置 server");
+                std::process::exit(1);
+            });
+        log_info!("✅ 已启动 (v{VERSION})");
         loop {
             let Ok(ws_stream) = self.connect(&url).await else {
                 sleep(Duration::from_secs(1)).await;
                 continue;
             };
-            println!("✅ 已连接: {:?}", url);
+            log_info!("✅ 已连接: {:?}", url);
             self.init(ws_stream).await;
             if let Err(e) = MessageManager::instance().process_messages().await {
-                eprintln!("❌ 消息处理异常: {}", e);
+                log_error!("❌ 消息处理异常: {}", e);
             }
             self.dispose().await;
-            eprintln!("❌ 已断开连接");
+            log_error!("❌ 已断开连接");
         }
     }
 
@@ -156,7 +170,7 @@ async fn run_shell(request: Request) -> Result<Response, AppError> {
 }
 
 async fn on_event(event: Event) -> Result<(), AppError> {
-    println!("🔥 收到事件: {:?}", event);
+    log_info!("🔥 收到事件: {:?}", event);
     Ok(())
 }
 

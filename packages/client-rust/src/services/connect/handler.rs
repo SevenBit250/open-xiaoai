@@ -5,6 +5,7 @@ use tokio::sync::Mutex;
 use tokio_tungstenite::tungstenite::Message;
 
 use crate::base::AppError;
+use crate::log_info;
 
 use super::data::{AppMessage, Event, Request, Response, Stream};
 use super::message::MessageManager;
@@ -54,7 +55,7 @@ impl MessageHandler<Request> {
     }
 
     pub async fn on_request(&self, request: Request) -> Result<(), AppError> {
-        println!("🚗 收到指令: {:?}", request);
+        log_info!("🚗 收到指令: {:?}", request);
         let id = request.id.clone();
         let response: Response = match RPC::instance().on_request(request).await {
             Ok(resp) => Response { id, ..resp },

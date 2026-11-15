@@ -12,6 +12,7 @@ use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
 
 use crate::base::AppError;
+use crate::{log_error, log_info};
 
 /// poll 超时仅用于生命周期检查：空闲时无任何 stat/read 系统调用（P2-1）
 const POLL_TIMEOUT_MS: i32 = 500;
@@ -77,7 +78,7 @@ impl FileMonitor {
             .spawn(move || {
                 while thread_running.load(Ordering::Relaxed) {
                     if let Err(e) = run_monitor(&path, &tx, &thread_running) {
-                        eprintln!("file monitor 异常（{}）: {}", path.display(), e);
+                        log_error!("file monitor 异常（{}）: {}", path.display(), e);
                     }
                     if !thread_running.load(Ordering::Relaxed) {
                         break;
@@ -193,7 +194,7 @@ fn run_monitor(path: &Path, tx: &mpsc::Sender<FileMonitorEvent>, running: &Atomi
 
         if file_gone {
             if DEBUG.load(Ordering::Relaxed) {
-                eprintln!("[fm:{}] file_gone -> 等待重建", path.display());
+                log_info!("[fm:{}] file_gone -> 等待重建", path.display());
             }
             // 轮转/删除：按旧版语义发 NewFile，等待新文件后从头重读
             tx.blocking_send(FileMonitorEvent::NewFile)
@@ -237,7 +238,7 @@ fn wait_for_file(inotify: &mut Inotify, path: &Path, running: &AtomicBool) -> Mo
     }
     let parent = parent_dir(path);
     if !parent.exists() {
-        eprintln!("file monitor: 父目录不存在，慢轮询等待 {}", path.display());
+        log_error!("file monitor: 父目录不存在，慢轮询等待 {}", path.display());
         while running.load(Ordering::Relaxed) && !path.exists() {
             thread::sleep(Duration::from_millis(500));
         }
@@ -259,7 +260,7 @@ fn wait_for_file(inotify: &mut Inotify, path: &Path, running: &AtomicBool) -> Mo
             .read_events(&mut buf)
             .map_err(|e| format!("read_events 失败: {e}"))?;
         if DEBUG.load(Ordering::Relaxed) {
-            eprintln!("[fm:{} poll] got events", path.display());
+            log_info!("[fm:{}] poll] got events", path.display());
         }
         for event in events {
             if event
