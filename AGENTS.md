@@ -45,6 +45,7 @@ CI（`.github/workflows/`）：`compile-client-rust.yml` 编译 Client；`LX06.y
 - `instruction`：tail 音箱自带 AIVS 日志 `/tmp/mico_aivs_lab/instruction.log`（每行一条 JSON，含 ASR 识别结果、Speak/Play 指令等）。
 - `playing`：原生 ubus socket（`ubus-zero` crate）长连接轮询 `mediaplayer.player_get_play_status`，自适应间隔（播放 100ms/空闲 200ms），零进程 spawn；环境变量 `PLAYING_MONITOR=shell` 回退旧 mphelper 路径。详见 `docs/client-optimization.md`（P0-1 实测数据与状态语义 0/1/2/3）。
 - `kws`：tail `/tmp/open-xiaoai/kws.log`，格式 `timestamp@keyword`，`__STARTED__` 表示唤醒引擎就绪。
+- 文件监控（file.rs）为 inotify + 2s 安全兜底轮询双模：**LX06 4.9 内核的 fsnotify 会间歇性整体失效**（inotifyd 也收不到事件），勿改成纯 inotify 依赖。
 - 录音：spawn 系统 `arecord` 子进程读 stdout；播放：收到的流写入 `aplay` 子进程 stdin。
 
 **固件补丁**（`packages/client-patch/patches/`）：`01-ssh`（固化 SSH）、`02-login`（root 密码，`{SSH_PASSWORD}` 占位符在 patch.sh 中替换，默认 open-xiaoai）、`03-ota`（禁自动更新）、`04-start`（rc.local 挂载 `/data/init.sh` 开机启动钩子）、`LX06/`（机型专属音频补丁）。补丁按文件名顺序应用，`.patch` 走 `patch -p1`，`.sh` 直接执行。

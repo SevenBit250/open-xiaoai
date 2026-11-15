@@ -102,7 +102,20 @@
   2. kws 未安装时 `kws.log` 不存在，`while !Path::exists()` 每 10ms 无限空转（当前机器即此状态）
   3. `metadata().unwrap()` 在 tmpfs 异常时可能 panic 掉监控任务
 - **修法**：inotify 事件驱动（内核 4.9 支持，`inotify` crate），文件不存在时懒启动（kws monitor 改为首次事件触发再挂载）；`unwrap()` 换容错
-- **状态**：待修
+- **状态**：✅ 已修复（2026-11-15，inotify 事件驱动 + 安全兜底轮询双模）
+
+实现要点（`file.rs` 重写）：
+- 事件驱动主路径：inotify watch 文件（MODIFY/ATTRIB/MOVE_SELF/DELETE_SELF）+ 父目录（CREATE/MOVED_TO/轮转检测），`libc::poll` 带 500ms 超时做生命周期检查；空闲时零 stat/read 系统调用
+- 文件不存在时 watch 父目录创建事件（零成本等待，kws 未装不再空转）；父目录也不存在才退化为 500ms 慢轮询
+- 轮转处理：MOVE_SELF/DELETE_SELF/目录事件 → NewFile → 等待重建 → 从头重读 + 重建 watch（实测 mv+重建+追加全链路恢复）
+- `FM_DEBUG=1` 环境变量可打印内部事件流（调试用）
+- 架构与 PlayingMonitor 一致：std 线程阻塞 IO + `blocking_send` 桥接 tokio + `AtomicBool` 生命周期
+
+**⚠️ 重要实测发现（LX06 1.94.13 / kernel 4.9）**：inotify/fsnotify 会**间歇性整体失效**——失效期间 busybox `inotifyd` 也收不到任何事件（/tmp、/data 均失效），dmesg 无线索、内存充足、watch/instance 配额未超（8/8192），且会自行恢复（日志证据：19:17-19:20 间歇工作）。**纯 inotify 方案在此固件不可依赖**，因此实现为双模：
+- inotify 正常：事件延迟 <100ms，空闲零系统调用
+- inotify 失效：安全兜底轮询（2s 间隔）保证事件 ≤4s 到达，成本仅 0.5 stat/s（旧方案 200 stat/s 的 1/400）
+
+验证记录：兜底模式下 kws 追加/轮转/重建/追加全链路通过；instruction 对话流正常；P0/P1 全项回归通过；空闲 CPU 30s 仅 5 jiffies（~0.17% 单核）。
 
 ### 🟡 P2-2 二进制体积偏大
 
