@@ -1,0 +1,19 @@
+services:
+  xiaoai-voice:
+    image: xiaoai-voice:latest
+    build: ./app
+    container_name: xiaoai-voice
+    ports:
+      - "4399:4399"
+      - "8080:8080"
+    volumes:
+      - ./models:/models:ro
+      - ./data:/data
+    environment:
+      - WAKE_WORDS=豆包豆包
+      - SPK_THRESHOLD=0.18
+      - REPLY_OK=哎，我在
+      - MODEL_KWS=/models/kws
+      - MODEL_SPK=/models/speaker/wespeaker_zh_cnceleb_resnet34_LM.onnx
+      - MODEL_VAD=/models/vad/silero_vad.onnx
+    restart: unless-stopped
